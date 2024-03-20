@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+import argparse
+import socket
+import re
+#0bc25c6bc5318c8e10ed48cfc1af7c73fd96a24af55a826bebc952ebda78af24
+DEFAULT_SERVER = "proj5.3700.network"
+DEFAULT_PORT = 443
+
+class Crawler:
+    def __init__(self, args):
+        self.server = args.server
+        self.port = args.port
+        self.username = args.username
+        self.password = args.password
+        self.session_cookies = {}
+        self.url_frontier = set()
+
+    def send_request(self, request):
+        mysocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        mysocket.connect((self.server, self.port))
+        mysocket.send(request.encode('ascii'))
+
+        response = b""
+        while True:
+            chunk = mysocket.recv(4096)
+            if not chunk:
+                break
+            response += chunk
+
+        mysocket.close()
+        return response
+
+    def extract_links(self, html_content):
+        # Initialize an empty list to store extracted links
+        links = []
+        # Initialize the starting index for searching in the HTML content
+        start_index = 0
+        # Start an infinite loop to find all <a> tags in the HTML content
+        while True:
+            # Find the next occurrence of "<a" tag
+            start_index = html_content.find("<a", start_index)
+            # If "<a" tag is not found, exit the loop
+            if start_index == -1:
+                break
+            # Find the closing ">" of the "<a" tag
+            end_index = html_content.find(">", start_index)
+            if end_index == -1:
+                break
+             # Find the start of "href" attribute
+            href_start_index = html_content.find("href=", start_index)
+            #if found then Move the index to the start of the URL value
+            ## Find the end of the URL value
+            # If end of the URL value is found
+             # Extract the URL value
+              # Append the extracted URL to the list of links
+            # Move the starting index to the end of the current "<a>" tag
+            # Return the list of extracted links
+
+            if href_start_index != -1:
+                
+                href_start_index += 6
+                href_end_index = html_content.find('"', href_start_index)
+                if href_end_index != -1:
+                    link = html_content[href_start_index:href_end_index]
+                    links.append(link)
+
+            start_index = end_index
+
+        return links
+# Initialize an empty list to store filtered links, Iterate through each link in the list of links Check if the link starts with "/fakebook/"
+    # If it does, append the link to the filtered list
+    # Return the filtered list of links
+    def filter_links(self, links):
+        filtered_links = []
+        for link in links:
+            if link.startswith("/fakebook/"):
+                filtered_links.append(link)
+        return filtered_links
+#    This method takes a response from an HTTP request as input.
+#It splits the response into header and body parts, discarding the body.
+#Then it iterates over each header in the header part.
+#For each header, it checks if it starts with "Location:". If so, it extracts and returns the URL after the colon and space.
+#If no "Location:" header is found, it returns None.
+    def extract_location_header(self, response):
+        headers = response.split(b"\r\n\r\n", 1)[0].split(b"\r\n")[1:]
+        for header in headers:
+            if header.startswith(b"Location:"):
+                return header.split(b": ", 1)[1].decode('ascii').strip()
+        return None
+    
+    #This method sends an HTTP GET request to the login page ("/accounts/login/") to obtain the CSRF token.
+#It constructs an HTTP request with the appropriate headers, including the Host header.
+#Then it sends the request using the send_request method and decodes the response.
+#Finally, it extracts the CSRF token from the response body using the extract_csrf_token method.
+#
+    #The CSRF token is required for authenticating the user during the login process. This method retrieves the CSRF token from the login page so that it can be used in the login request.
+    #
+    #
+    def get_csrf_token(self):
+        """
+        Sends an HTTP GET request to the login page to obtain the CSRF token.
+
+        Returns:
+            str: The CSRF token extracted from the HTML content of the login page, or None if not found.
+        """
+        # Construct the HTTP request for the login page
+        request = f"GET /accounts/login/ HTTP/1.1\r\n"
+        request += f"Host: {self.server}\r\n"
+        request += "\r\n"
+# Send the HTTP request and decode the response
+        response = self.send_request(request).decode('utf-8')
+         # Extract the CSRF token from the HTML content of the response
+        return self.extract_csrf_token(response)
+
+    def extract_csrf_token(self, html_content):
+        """
+        Extracts the CSRF token from the HTML content of the login page.
+
+        Args:
+            html_content (str): The HTML content of the login page.
+
+        Returns:
+            str: The CSRF token extracted from the HTML content, or None if not found.
+        """
+         # Find the start index of the CSRF token pattern in the HTML content
+        start_index = html_content.find("name='csrfmiddlewaretoken' value='")
+        if start_index != -1:
+            # Adjust the start index to skip the pattern and get to the beginning of the token value
+            start_index += 34
+            # Find the end index of the CSRF token value
+            end_index = html_content.find("'", start_index)
+            if end_index != -1:
+                #Extract the CSRF token from the HTML content and return it
+                return html_content[start_index:end_index]
+            # Return None if the CSRF token is not found in the HTML content
+        return None
+
+    def login(self):
+        """
+        Logs in to the Fakebook website using the provided username and password.
+
+        Returns:
+            bool: True if the login is successful, False otherwise.
+        """
+         # Obtain the CSRF token from the login page
+        csrf_token = self.get_csrf_token()
+        # Check if CSRF token is obtained successfully
+        if csrf_token:
+             # Construct the HTTP request for the login action
+            request = f"POST /accounts/login/ HTTP/1.1\r\n"
+            request += f"Host: {self.server}\r\n"
+            request += "Content-Type: application/x-www-form-urlencoded\r\n"
+            request += f"Content-Length: {len(self.username) + len(self.password) + len(csrf_token) + 30}\r\n"
+            request += f"Cookie: csrftoken={csrf_token}\r\n"
+            request += "\r\n"
+            request += f"username={self.username}&password={self.password}&csrfmiddlewaretoken={csrf_token}"
+            # Send the HTTP request and decode the response
+            response = self.send_request(request).decode('utf-8')
+             # Check if login is successful based on response
+            if "Welcome" in response:
+                print("Login Successful.")
+                # Extract session cookies
+                headers = response.split("\r\n\r\n", 1)[0].split("\r\n")[1:]
+                for header in headers:
+                    if header.startswith("Set-Cookie:"):
+                        cookie = header.split("Set-Cookie: ")[1].split(";")[0]
+                        key, value = cookie.split("=")
+                        self.session_cookies[key] = value
+                return True
+            else:
+                print("Login Failed.")
+        else:
+            print("CSRF token not found.")
+        return False
+
+    def handle_response(self, response):
+    # Extract the status line from the response
+        status_line = response.split(b"\r\n", 1)[0]
+    # Extract the status code from the status line and convert it to an integer
+        status_code = int(status_line.split()[1])
+
+    # Print the status code of the response
+        print("Response Status Code:", status_code)
+
+    # If the status code indicates a successful response (200 OK)
+        if status_code == 200:
+        # Extract the HTML content from the response
+          html_content = response.split(b"\r\n\r\n", 1)[1].decode('utf-8')
+        # Extract links from the HTML content
+          links = self.extract_links(html_content)
+        # Filter out links that belong to the target domain
+          filtered_links = self.filter_links(links)
+        # Iterate through the filtered links
+          for link in filtered_links:
+            # Check if the link has not been visited before
+              if link not in self.visited_profiles:
+                # Add the link to the URL frontier for further crawling
+                  self.url_frontier.add(link)
+                # Mark the link as visited by adding it to the visited profiles set
+                  self.visited_profiles.add(link)
+         # Check for secret flags in the HTML content
+        secret_flags = self.extract_secret_flags(html_content)
+        if secret_flags:
+            self.collect_secret_flags(secret_flags)
+
+
+    # If the status code indicates a redirection (302 Found)
+        elif status_code == 302:
+        # Extract the location header from the response
+          location_header = self.extract_location_header(response)
+        # If a location header is present
+          if location_header:
+            # Print the redirection target
+            print("Redirecting to:", location_header)
+            # Add the redirection target to the URL frontier for further crawling
+            self.url_frontier.add(location_header)
+
+    # If the status code indicates an error (403 Forbidden or 404 Not Found)
+        elif status_code == 403 or status_code == 404:
+        # Print the error code
+          print("Error:", status_code)
+
+    # If the status code indicates a service unavailable (503 Service Unavailable)
+        elif status_code == 503:
+        # Print a message indicating service unavailability and retrying
+            print("Service Unavailable. Retrying...")
+        # Pop a URL from the URL frontier for retrying
+            url = self.url_frontier.pop()
+        # Construct a GET request for the URL
+            request = f"GET {url} HTTP/1.1\r\n"
+            request += f"Host: {self.server}\r\n"
+        # Include session cookies in the request header if available
+            if self.session_cookies:
+                cookies = "; ".join([f"{key}={value}" for key, value in self.session_cookies.items()])
+                request += f"Cookie: {cookies}\r\n"
+            request += "\r\n"
+        # Send the retry request and handle the response recursively
+            response = self.send_request(request)
+            self.handle_response(response)
+
+    def extract_secret_flags(self, html_content):
+    # Initialize an empty list to store secret flags
+        secret_flags = []
+    # Define a regular expression pattern to match <h3> tags with class 'secret_flag'
+     pattern = r"<h3 class=['\"]secret_flag['\"].*?>(.*?)</h3>"
+    # Use re.findall to find all matches of the pattern in the HTML content
+    matches = re.findall(pattern, html_content, flags=re.DOTALL)
+    # Iterate through the matches
+    for match in matches:
+        # Append the matched text (presumed to be the secret flag) to the secret_flags list
+        secret_flags.append(match.strip())
+    # Return the list of secret flags
+    return secret_flags
+
+    def collect_secret_flags(self, secret_flags):
+    # Initialize a counter for the number of flags collected
+    flags_collected = 0
+    # Iterate through the secret flags
+    for flag in secret_flags:
+        # Check if the flag has already been collected
+        if flag not in self.collected_flags:
+            # If not, print and store the flag
+            print("Found secret flag:", flag)
+            self.collected_flags.add(flag)
+            # Increment the counter
+            flags_collected += 1
+            # Check if we've collected enough flags (5)
+            if flags_collected == 5:
+                print("All 5 secret flags collected. Stopping crawl.")
+                # If so, break out of the loop
+                break
+
+
+    def run(self):
+        if self.login():
+            while self.url_frontier:
+                url = self.url_frontier.pop()
+                request = f"GET {url} HTTP/1.1\r\n"
+                request += f"Host: {self.server}\r\n"
+                if self.session_cookies:
+                    cookies = "; ".join([f"{key}={value}" for key, value in self.session_cookies.items()])
+                    request += f"Cookie: {cookies}\r\n"
+                request += "\r\n"
+
+                print("Request:", request)
+
+                response = self.send_request(request)
+                self.handle_response(response)
+        else:
+            print("Login Failed.")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='crawl Fakebook')
+    parser.add_argument('-s', dest="server", type=str, default=DEFAULT_SERVER, help="The server to crawl")
+    parser.add_argument('-p', dest="port", type=int, default=DEFAULT_PORT, help="The port to use")
+    parser.add_argument('username', type=str, help="The username to use")
+    parser.add_argument('password', type=str, help="The password to use")
+    args = parser.parse_args()
+
+    crawler = Crawler(args)
+    crawler.run()
