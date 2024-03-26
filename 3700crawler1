@@ -2,9 +2,19 @@
 import argparse
 import socket
 import re
+import time
+import ssl
 #0bc25c6bc5318c8e10ed48cfc1af7c73fd96a24af55a826bebc952ebda78af24
 DEFAULT_SERVER = "proj5.3700.network"
 DEFAULT_PORT = 443
+
+
+# Strategy:
+
+# 1. GET request -> Extract csrf token
+# 2. Get HTML Page and print it out.
+# 3. Get cookies.
+
 
 class Crawler:
     def __init__(self, args):
@@ -17,18 +27,24 @@ class Crawler:
 
     def send_request(self, request):
         mysocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        mysocket = ssl.wrap_socket(mysocket, ssl_version=ssl.PROTOCOL_TLSv1_2)
+        
         mysocket.connect((self.server, self.port))
+        print("I am over here 2")
         mysocket.send(request.encode('ascii'))
-
-        response = b""
-        while True:
-            chunk = mysocket.recv(4096)
-            if not chunk:
-                break
-            response += chunk
+        # time.sleep(1)
+        response = mysocket.recv(1000)
+        # while True:
+        #     chunk = mysocket.recv(4096)
+        #     if not chunk:
+        #         break
+        #     response += chunk
+            
+        print(response)
 
         mysocket.close()
         return response
+
 
     def extract_links(self, html_content):
         # Initialize an empty list to store extracted links
@@ -67,7 +83,7 @@ class Crawler:
             start_index = end_index
 
         return links
-# Initialize an empty list to store filtered links, Iterate through each link in the list of links Check if the link starts with "/fakebook/"
+    # Initialize an empty list to store filtered links, Iterate through each link in the list of links Check if the link starts with "/fakebook/"
     # If it does, append the link to the filtered list
     # Return the filtered list of links
     def filter_links(self, links):
@@ -76,11 +92,11 @@ class Crawler:
             if link.startswith("/fakebook/"):
                 filtered_links.append(link)
         return filtered_links
-#    This method takes a response from an HTTP request as input.
-#It splits the response into header and body parts, discarding the body.
-#Then it iterates over each header in the header part.
-#For each header, it checks if it starts with "Location:". If so, it extracts and returns the URL after the colon and space.
-#If no "Location:" header is found, it returns None.
+    #    This method takes a response from an HTTP request as input.
+    #It splits the response into header and body parts, discarding the body.
+    #Then it iterates over each header in the header part.
+    #For each header, it checks if it starts with "Location:". If so, it extracts and returns the URL after the colon and space.
+    #If no "Location:" header is found, it returns None.
     def extract_location_header(self, response):
         headers = response.split(b"\r\n\r\n", 1)[0].split(b"\r\n")[1:]
         for header in headers:
@@ -89,10 +105,10 @@ class Crawler:
         return None
     
     #This method sends an HTTP GET request to the login page ("/accounts/login/") to obtain the CSRF token.
-#It constructs an HTTP request with the appropriate headers, including the Host header.
-#Then it sends the request using the send_request method and decodes the response.
-#Finally, it extracts the CSRF token from the response body using the extract_csrf_token method.
-#
+    #It constructs an HTTP request with the appropriate headers, including the Host header.
+    #Then it sends the request using the send_request method and decodes the response.
+    #Finally, it extracts the CSRF token from the response body using the extract_csrf_token method.
+    #
     #The CSRF token is required for authenticating the user during the login process. This method retrieves the CSRF token from the login page so that it can be used in the login request.
     #
     #
@@ -104,11 +120,18 @@ class Crawler:
             str: The CSRF token extracted from the HTML content of the login page, or None if not found.
         """
         # Construct the HTTP request for the login page
-        request = f"GET /accounts/login/ HTTP/1.1\r\n"
-        request += f"Host: {self.server}\r\n"
+        request = f"GET /fakebook/ HTTP/1.1\r\n"
+        request += f"HOST: {self.server}:{self.port}\r\n"
+        
+        print(request)
+        
         request += "\r\n"
 # Send the HTTP request and decode the response
         response = self.send_request(request).decode('utf-8')
+        
+        print("---------CSRF HERE----------")
+        print(response)
+        print("-----------\n\n")
          # Extract the CSRF token from the HTML content of the response
         return self.extract_csrf_token(response)
 
@@ -143,20 +166,24 @@ class Crawler:
             bool: True if the login is successful, False otherwise.
         """
          # Obtain the CSRF token from the login page
-        csrf_token = self.get_csrf_token()
+        # csrf_token = self.get_csrf_token()
+        csrf_token = "12319381038"
         # Check if CSRF token is obtained successfully
-        if csrf_token:
+        if True:
              # Construct the HTTP request for the login action
-            request = f"POST /accounts/login/ HTTP/1.1\r\n"
-            request += f"Host: {self.server}\r\n"
+            request = f"POST /accounts/login/?next=/fakebook/ HTTP/1.1\r\n"
+            request += f"HOST: {self.server}:{self.port}\r\n"
             request += "Content-Type: application/x-www-form-urlencoded\r\n"
             request += f"Content-Length: {len(self.username) + len(self.password) + len(csrf_token) + 30}\r\n"
             request += f"Cookie: csrftoken={csrf_token}\r\n"
+            request += f"username={self.username}&password={self.password}&csrfmiddlewaretoken={csrf_token}\r\n"
             request += "\r\n"
-            request += f"username={self.username}&password={self.password}&csrfmiddlewaretoken={csrf_token}"
             # Send the HTTP request and decode the response
-            response = self.send_request(request).decode('utf-8')
+            print(request)
+            response = self.send_request(request).decode('ascii')
              # Check if login is successful based on response
+            print(response)
+            print("I am over here!")
             if "Welcome" in response:
                 print("Login Successful.")
                 # Extract session cookies
@@ -239,36 +266,36 @@ class Crawler:
             self.handle_response(response)
 
     def extract_secret_flags(self, html_content):
-    # Initialize an empty list to store secret flags
+        # Initialize an empty list to store secret flags
         secret_flags = []
-    # Define a regular expression pattern to match <h3> tags with class 'secret_flag'
-     pattern = r"<h3 class=['\"]secret_flag['\"].*?>(.*?)</h3>"
-    # Use re.findall to find all matches of the pattern in the HTML content
-    matches = re.findall(pattern, html_content, flags=re.DOTALL)
-    # Iterate through the matches
-    for match in matches:
-        # Append the matched text (presumed to be the secret flag) to the secret_flags list
-        secret_flags.append(match.strip())
-    # Return the list of secret flags
-    return secret_flags
+        # Define a regular expression pattern to match <h3> tags with class 'secret_flag'
+        pattern = r"<h3 class=['\"]secret_flag['\"].*?>(.*?)</h3>"
+        # Use re.findall to find all matches of the pattern in the HTML content
+        matches = re.findall(pattern, html_content, flags=re.DOTALL)
+        # Iterate through the matches
+        for match in matches:
+            # Append the matched text (presumed to be the secret flag) to the secret_flags list
+            secret_flags.append(match.strip())
+        # Return the list of secret flags
+        return secret_flags
 
     def collect_secret_flags(self, secret_flags):
     # Initialize a counter for the number of flags collected
-    flags_collected = 0
-    # Iterate through the secret flags
-    for flag in secret_flags:
-        # Check if the flag has already been collected
-        if flag not in self.collected_flags:
-            # If not, print and store the flag
-            print("Found secret flag:", flag)
-            self.collected_flags.add(flag)
-            # Increment the counter
-            flags_collected += 1
-            # Check if we've collected enough flags (5)
-            if flags_collected == 5:
-                print("All 5 secret flags collected. Stopping crawl.")
-                # If so, break out of the loop
-                break
+        flags_collected = 0
+        # Iterate through the secret flags
+        for flag in secret_flags:
+            # Check if the flag has already been collected
+            if flag not in self.collected_flags:
+                # If not, print and store the flag
+                print("Found secret flag:", flag)
+                self.collected_flags.add(flag)
+                # Increment the counter
+                flags_collected += 1
+                # Check if we've collected enough flags (5)
+                if flags_collected == 5:
+                    print("All 5 secret flags collected. Stopping crawl.")
+                    # If so, break out of the loop
+                    break
 
 
     def run(self):
