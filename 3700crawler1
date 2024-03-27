@@ -7,7 +7,7 @@ import ssl
 #0bc25c6bc5318c8e10ed48cfc1af7c73fd96a24af55a826bebc952ebda78af24
 DEFAULT_SERVER = "proj5.3700.network"
 DEFAULT_PORT = 443
-
+LOGIN_POINT = "/accounts/login/?next=/fakebook/"
 
 # Strategy:
 
@@ -33,14 +33,14 @@ class Crawler:
         print("I am over here 2")
         mysocket.send(request.encode('ascii'))
         # time.sleep(1)
-        response = mysocket.recv(1000)
-        # while True:
-        #     chunk = mysocket.recv(4096)
-        #     if not chunk:
-        #         break
-        #     response += chunk
+        
+        response = mysocket.recv(1024).decode('ascii')
+        while response:
+            if response[-1] == '\n':
+                break
+            response += mysocket.recv(1024).decode('ascii')
             
-        print(response)
+        # print(response)
 
         mysocket.close()
         return response
@@ -101,7 +101,7 @@ class Crawler:
         headers = response.split(b"\r\n\r\n", 1)[0].split(b"\r\n")[1:]
         for header in headers:
             if header.startswith(b"Location:"):
-                return header.split(b": ", 1)[1].decode('ascii').strip()
+                return header.split(b": ", 1)[1].strip()
         return None
     
     #This method sends an HTTP GET request to the login page ("/accounts/login/") to obtain the CSRF token.
@@ -120,14 +120,14 @@ class Crawler:
             str: The CSRF token extracted from the HTML content of the login page, or None if not found.
         """
         # Construct the HTTP request for the login page
-        request = f"GET /fakebook/ HTTP/1.1\r\n"
+        request = f"GET {LOGIN_POINT} HTTP/1.1\r\n"
         request += f"HOST: {self.server}:{self.port}\r\n"
         
         print(request)
         
         request += "\r\n"
 # Send the HTTP request and decode the response
-        response = self.send_request(request).decode('utf-8')
+        response = self.send_request(request)
         
         print("---------CSRF HERE----------")
         print(response)
@@ -146,12 +146,13 @@ class Crawler:
             str: The CSRF token extracted from the HTML content, or None if not found.
         """
          # Find the start index of the CSRF token pattern in the HTML content
-        start_index = html_content.find("name='csrfmiddlewaretoken' value='")
+        start_index = html_content.find('name="csrfmiddlewaretoken" value="')
         if start_index != -1:
             # Adjust the start index to skip the pattern and get to the beginning of the token value
             start_index += 34
             # Find the end index of the CSRF token value
-            end_index = html_content.find("'", start_index)
+            end_index = html_content.find('"', start_index)
+            # print(html_content[start_index:end_index])
             if end_index != -1:
                 #Extract the CSRF token from the HTML content and return it
                 return html_content[start_index:end_index]
@@ -166,10 +167,11 @@ class Crawler:
             bool: True if the login is successful, False otherwise.
         """
          # Obtain the CSRF token from the login page
-        # csrf_token = self.get_csrf_token()
-        csrf_token = "12319381038"
+        csrf_token = self.get_csrf_token()
+        print(csrf_token)
+        # csrf_token = "12319381038"
         # Check if CSRF token is obtained successfully
-        if True:
+        if csrf_token:
              # Construct the HTTP request for the login action
             request = f"POST /accounts/login/?next=/fakebook/ HTTP/1.1\r\n"
             request += f"HOST: {self.server}:{self.port}\r\n"
@@ -180,7 +182,7 @@ class Crawler:
             request += "\r\n"
             # Send the HTTP request and decode the response
             print(request)
-            response = self.send_request(request).decode('ascii')
+            response = self.send_request(request)
              # Check if login is successful based on response
             print(response)
             print("I am over here!")
@@ -212,7 +214,7 @@ class Crawler:
     # If the status code indicates a successful response (200 OK)
         if status_code == 200:
         # Extract the HTML content from the response
-          html_content = response.split(b"\r\n\r\n", 1)[1].decode('utf-8')
+          html_content = response.split(b"\r\n\r\n", 1)[1]
         # Extract links from the HTML content
           links = self.extract_links(html_content)
         # Filter out links that belong to the target domain
